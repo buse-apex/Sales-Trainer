@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · The Objection Playbook</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async></script>
+<style>
+  :root{--ink:#16212B;--signal:#F47C35;--line:#DCE6EE;--muted:#4E5D6B}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',sans-serif;background:#F6F9FB;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 60px rgba(22,33,43,.12);max-width:420px;width:100%;padding:40px 34px 30px;text-align:center}
+  .logo{font-family:'Jost',sans-serif;font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--signal);margin-bottom:14px}
+  h1{font-family:'Jost',sans-serif;font-size:28px;font-weight:600;color:var(--ink);text-transform:uppercase;line-height:1.1;margin-bottom:10px}
+  p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:24px}
+  #gbtn{display:flex;justify-content:center;min-height:44px}
+  .err{display:none;margin-top:16px;background:rgba(176,68,48,.1);border-left:3px solid #B04430;color:#16212B;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5;text-align:left}
+  .foot{margin-top:22px;font-size:12px;color:#8A99A8}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Apex Leadership Co.</div>
+  <h1>The Objection Playbook</h1>
+  <p>Sign in with your Apex Google account to start training.</p>
+  <div id="gbtn"></div>
+  <div class="err" id="err"></div>
+  <div class="foot">Access is limited to the Apex franchise network.</div>
+</div>
+<script>
+function fail(msg){const e=document.getElementById('err');e.textContent=msg;e.style.display='block';}
+async function onCred(resp){
+  try{
+    const r=await fetch('/api/auth',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({credential:resp.credential})});
+    const data=await r.json();
+    if(r.ok && data.ok){window.location.href='/';}
+    else fail(data.error||'Sign-in failed. Please try again.');
+  }catch(e){fail('Could not reach the sign-in service. Check your connection and try again.');}
+}
+async function boot(){
+  try{
+    const cfg=await (await fetch('/api/config')).json();
+    if(!cfg.clientId){fail('The site is not configured yet. The GOOGLE_CLIENT_ID environment variable is missing in Vercel.');return;}
+    const start=()=>{
+      google.accounts.id.initialize({client_id:cfg.clientId,callback:onCred});
+      google.accounts.id.renderButton(document.getElementById('gbtn'),{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with',width:280});
+    };
+    if(window.google&&google.accounts) start();
+    else{const t=setInterval(()=>{if(window.google&&google.accounts){clearInterval(t);start();}},150);setTimeout(()=>clearInterval(t),8000);}
+  }catch(e){fail('Could not load sign-in configuration.');}
+}
+boot();
+</script>
+</body>
+</html>
