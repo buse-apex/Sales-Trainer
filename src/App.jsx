@@ -1335,6 +1335,14 @@ function track(ev, props){
   try{ if(POSTHOG_KEY && window.posthog) posthog.capture(ev, props||{}); }catch(e){}
 }
 
+/* Generic early-exit ending when the contact's patience runs out */
+const CUTNODE = {
+  isEnd: true, endType: "loss",
+  endMessage: "\"You know what — I've got another meeting I need to get to. Thanks for coming by.\" They stand and extend a hand. Polite, warm even. And completely final. The conversation ended before you ever got to make your case.",
+  summary: "Three shaky answers cooled the room past saving. Administrators rarely say 'you're losing me' out loud — they find a meeting to get to. The warning signs were there: shorter replies, a glance at the clock. Strong answers early buy you the right to stumble later; stumbles early leave no cushion.",
+};
+const WARN_PREFIX = "I'll be honest — you're starting to sound like every other vendor who's sat in that chair. ";
+
 /* ═══════════════════ APP ═══════════════════ */
 export default function App() {
   const [scr, setScr] = useState("menu");
@@ -1358,6 +1366,9 @@ export default function App() {
   const [cumScores, setCumScores] = useState(null);
   const [user, setUser] = useState(null);
   const [runSalt, setRunSalt] = useState("s0");
+  const [poorCt, setPoorCt] = useState(0);
+  const [warnNid, setWarnNid] = useState(null);
+  const [cut, setCut] = useState(false);
   const [drillSalt, setDrillSalt] = useState("d0");
 
   // Identity comes from the apex_user cookie set by /api/auth (middleware gates access).
@@ -1387,16 +1398,28 @@ export default function App() {
 
   useEffect(() => { ref.current?.scrollIntoView({behavior:"smooth"}) }, [hist.length, coach, emailFb, drillAnswer]);
 
-  const go = s => { track("scenario_started",{scenario:s.title,difficulty:s.difficulty});setRunSalt(Math.random().toString(36).slice(2));setSc(s);setNid("start");setHist([]);setCoach(false);setLast(null);setTs({empathy:0,discovery:0,framing:0,momentum:0});setMs({empathy:0,discovery:0,framing:0,momentum:0});setEmailText("");setEmailFb(null);setScr("brief"); };
+  const go = s => { track("scenario_started",{scenario:s.title,difficulty:s.difficulty});setRunSalt(Math.random().toString(36).slice(2));setSc(s);setNid("start");setHist([]);setCoach(false);setLast(null);setPoorCt(0);setWarnNid(null);setCut(false);setTs({empathy:0,discovery:0,framing:0,momentum:0});setMs({empathy:0,discovery:0,framing:0,momentum:0});setEmailText("");setEmailFb(null);setScr("brief"); };
   const pick = (o,opts) => {
     const b={}; Object.keys(PRINC).forEach(k=>{b[k]=Math.max(...opts.map(x=>x.scores[k]||0))});
     setTs(p=>{const n={...p};Object.keys(o.scores).forEach(k=>n[k]+=o.scores[k]);return n});
     setMs(p=>{const n={...p};Object.keys(b).forEach(k=>n[k]+=b[k]);return n});
-    track("choice_made",{scenario:sc.title,node:nid,rating:o.rating});setHist(p=>[...p,{nid,text:o.text,...o}]);setLast(o);setCoach(true);
+    track("choice_made",{scenario:sc.title,node:nid,rating:o.rating});
+    if(o.rating==="poor") setPoorCt(c=>c+1);
+    else if(o.rating==="excellent") setPoorCt(c=>Math.max(0,c-1));
+    setHist(p=>[...p,{nid,text:o.text,...o}]);setLast(o);setCoach(true);
   };
-  const adv = () => { setCoach(false);setNid(last.next); };
+  const adv = () => {
+    setCoach(false);
+    if (poorCt >= 3 && !sc.nodes[last.next]?.isEnd) {
+      setCut(true); setNid("__cut");
+      track("conversation_cut_short",{scenario:sc.title});
+      return;
+    }
+    if (poorCt === 2 && !warnNid && !sc.nodes[last.next]?.isEnd) setWarnNid(last.next);
+    setNid(last.next);
+  };
   const fin = () => { track("scenario_completed",{scenario:sc.title,score:og()}); if(!done.includes(sc.id))setDone(p=>[...p,sc.id]); saveCum(ts,ms); setScr("debrief"); };
-  const node = sc?sc.nodes[nid]:null;
+  const node = sc ? (nid === "__cut" ? CUTNODE : sc.nodes[nid]) : null;
   const shuffled = useMemo(
     () => (sc && node && node.options) ? shuffleOpts(node.options, runSalt + sc.id + nid) : [],
     [sc, nid, node, runSalt]
@@ -1617,13 +1640,13 @@ Respond ONLY with JSON (no markdown/backticks): {"score":0-100,"grade":"A/B/C/D"
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "10px 20px 120px" }}>
           {hist.map((h, i) => { const hn = sc.nodes[h.nid]; return (
             <div key={i}>
-              {hn && hn.speaker === "them" && <TheirLine name={hn.name} text={hn.text} />}
+              {hn && hn.speaker === "them" && <TheirLine name={hn.name} text={(h.nid === warnNid ? WARN_PREFIX : "") + hn.text} />}
               <YourLine text={h.text} />
               <CoachNote rating={h.rating} feedback={h.feedback} principle={h.principle} />
             </div>
           )})}
 
-          {!isEnd && !coach && node.speaker === "them" && <TheirLine name={node.name} text={node.text} animate />}
+          {!isEnd && !coach && node.speaker === "them" && <TheirLine name={node.name} text={(nid === warnNid ? WARN_PREFIX : "") + node.text} animate />}
 
           {coach && last && (
             <div>
@@ -1674,7 +1697,7 @@ Respond ONLY with JSON (no markdown/backticks): {"score":0-100,"grade":"A/B/C/D"
 
   /* ═══ DEBRIEF ═══ */
   if (scr === "debrief") {
-    const g = og(); const lh = hist[hist.length - 1]; const fn = lh ? sc.nodes[lh.next] : null;
+    const g = og(); const lh = hist[hist.length - 1]; const fn = cut ? CUTNODE : (lh ? sc.nodes[lh.next] : null);
     return (
       <Page>
         <Kicker style={{ marginBottom: 4 }}>Debrief</Kicker>
