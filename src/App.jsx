@@ -1343,6 +1343,13 @@ const CUTNODE = {
 };
 const WARN_PREFIX = "I'll be honest — you're starting to sound like every other vendor who's sat in that chair. ";
 
+const Page = ({ children, wide }) => (
+  <div style={{ background: T.page, minHeight: "100vh", padding: "28px 20px 80px", fontFamily: FD }}>
+    <GlobalStyle />
+    <div style={{ maxWidth: wide ? 720 : 640, margin: "0 auto" }}>{children}</div>
+  </div>
+);
+
 /* ═══════════════════ APP ═══════════════════ */
 export default function App() {
   const [scr, setScr] = useState("menu");
@@ -1460,13 +1467,6 @@ Respond ONLY with JSON (no markdown/backticks): {"score":0-100,"grade":"A/B/C/D"
   };
 
   const startDrill = (skill) => { track("drill_started",{skill}); setDrillSalt(Math.random().toString(36).slice(2)); setDrillSkill(skill); setDrillIdx(Math.floor(Math.random()*DRILLS[skill].length)); setDrillAnswer(null); setScr("drill"); };
-
-  const Page = ({ children, wide }) => (
-    <div style={{ background: T.page, minHeight: "100vh", padding: "28px 20px 80px", fontFamily: FD }}>
-      <GlobalStyle />
-      <div style={{ maxWidth: wide ? 720 : 640, margin: "0 auto" }}>{children}</div>
-    </div>
-  );
 
   /* ═══ COVER ═══ */
   if (intro) return (
