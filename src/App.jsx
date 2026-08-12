@@ -1311,32 +1311,56 @@ const SkillBadge = ({ k }) => (
 
 /* =====================================================================
    USAGE TRACKING (PostHog)
-   Set these in Vercel, Settings, Environment Variables (Production ticked):
-     VITE_POSTHOG_KEY   your PostHog Project API key (starts with "phc_")
-     VITE_POSTHOG_HOST  optional, defaults to https://us.i.posthog.com
-   Reading from the environment means the key survives every future code
-   update. Leave it unset and the tool still works, just without tracking.
+   The project key is served at runtime by /api/config, which reads the
+   POSTHOG_KEY environment variable in Vercel. Nothing is baked into the
+   build, so updating the key in Vercel takes effect on the next refresh
+   with no code change. Unset the variable and the tool still works, just
+   without tracking.
    ===================================================================== */
-const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY || "";
-const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com";
+let PH_READY = false;
+const PH_QUEUE = [];
 
-let WHO = null;
-try {
-  const m = /(?:^|;\s*)apex_user=([^;]+)/.exec(document.cookie || "");
-  if (m) WHO = decodeURIComponent(m[1]);
-} catch(e) {}
+function phWho() {
+  try {
+    const m = /(?:^|;\s*)apex_user=([^;]+)/.exec(document.cookie || "");
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch (e) { return null; }
+}
 
-function initAnalytics(){
-  if(!POSTHOG_KEY){
-    console.warn("[Apex] Usage tracking is off: VITE_POSTHOG_KEY is not set in Vercel.");
+async function initAnalytics() {
+  let key = "", host = "https://us.i.posthog.com";
+  try {
+    const cfg = await (await fetch("/api/config", { cache: "no-store" })).json();
+    key = cfg.posthogKey || "";
+    host = cfg.posthogHost || host;
+  } catch (e) {
+    console.warn("[Apex] Usage tracking off: could not reach /api/config.", e);
     return;
   }
-  !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-  posthog.init(POSTHOG_KEY,{api_host:POSTHOG_HOST,person_profiles:"identified_only"});
-  if(WHO){ posthog.identify(WHO, {franchisee: WHO}); }
+  if (!key) {
+    console.warn("[Apex] Usage tracking off: POSTHOG_KEY is not set in Vercel. Add it under Settings, Environment Variables, then redeploy.");
+    return;
+  }
+  try {
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init(key, { api_host: host, person_profiles: "identified_only" });
+    const who = phWho();
+    if (who) posthog.identify(who, { franchisee: who });
+    PH_READY = true;
+    console.info("[Apex] Usage tracking on" + (who ? " for " + who : "") + ".");
+    while (PH_QUEUE.length) {
+      const [ev, props] = PH_QUEUE.shift();
+      try { posthog.capture(ev, props || {}); } catch (e) {}
+    }
+  } catch (e) {
+    console.warn("[Apex] Usage tracking failed to start.", e);
+  }
 }
-function track(ev, props){
-  try{ if(POSTHOG_KEY && window.posthog) posthog.capture(ev, props||{}); }catch(e){}
+
+function track(ev, props) {
+  // Events fired before config arrives are queued, then flushed on init.
+  if (!PH_READY) { PH_QUEUE.push([ev, props]); return; }
+  try { if (window.posthog) posthog.capture(ev, props || {}); } catch (e) {}
 }
 
 /* Generic early-exit ending when the contact's patience runs out */
